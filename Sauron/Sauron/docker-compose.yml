@@ -30,6 +30,23 @@ services:
     networks:
       - sauron-net
 
+  war-room:
+    image: python:3.10-slim
+    container_name: war-room
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      sh -c "pip install streamlit pandas sqlalchemy psycopg2-binary plotly requests && 
+             streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0"
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sauron-net
+      
   web-target:
     image: nginx:alpine
     container_name: web-target

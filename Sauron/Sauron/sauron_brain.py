@@ -1,11 +1,12 @@
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime , Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import func
 import datetime
 import logging
+import requests
 
 DB_URL = "postgresql://sauron_admin:swampizzo@sauron-db/threat_intel"
 engine = create_engine(DB_URL)
@@ -18,6 +19,10 @@ class AttackEntry(Base):
     attacker_id = Column(String)
     service = Column(String)
     timestamp = Column(DateTime, default = datetime.datetime.utcnow )
+    country = Column(String, default="Unknown")
+    city = Column(String, default="Unknown")
+    latitude = Column(Float, default=0.0)
+    longitude = Column(Float, default=0.0)
 
 Base.metadata.create_all(bind=engine)
 
@@ -34,6 +39,19 @@ class AttackReport(BaseModel):
     service : str
 
 logger = logging.getLogger("sauron.brain")
+def get_geo_data(ip):
+    try:
+        response = requests.get(f"http://ip-api.com/json/{ip}",timeout = 5).json()
+        if response.get("status") == "success":
+            return{
+                "country" : response.get("country"),
+                "city": response.get("city"),
+                "lat": response.get("lat"),
+                "lon":response.get("lon")
+            }
+    except Exception:
+        pass
+    return {"country": "Unknown", "city": "Unknown", "lat": 0.0, "lon": 0.0}
 
 def analyze_threat(db: Session, attacker_ip: str):
     attack_count = db.query(AttackEntry).filter(AttackEntry.attacker_id == attacker_ip).count()
@@ -53,7 +71,11 @@ async def receive_report(report: AttackReport , db: Session = Depends(get_db)):
     new_attack = AttackEntry(
         agent_id = report.agent_id,
         attacker_id = report.attacker_id,
-        service = report.service
+        service = report.service,
+        country=geo["country"],
+        city=geo["city"],
+        latitude= geo["lat"],
+        longitude=geo["lon"]
     )
     db.add(new_attack)
     db.commit()

@@ -6,6 +6,7 @@ COPY sauron_brain.py .
 
 RUN pip install fastapi uvicorn
 RUN pip install sqlalchemy psycopg2-binary
+RUN pip install requests
 
 EXPOSE 8000
 

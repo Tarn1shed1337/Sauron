@@ -1,0 +1,108 @@
+services:
+  db:
+    image: postgres:15
+    container_name: sauron-db
+    environment:
+      POSTGRES_USER: sauron_admin
+      POSTGRES_PASSWORD: swampizzo
+      POSTGRES_DB: threat_intel
+    networks:
+      - sauron-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sauron_admin -d threat_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  nexus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://sauron_admin:swampizzo@db:5432/threat_intel
+    ports:
+      - "8000:8000"
+    networks:
+      - sauron-net
+
+  web-target:
+    image: nginx:alpine
+    container_name: web-target
+    ports: 
+      - "80:80"
+    volumes:
+      - sauron-web-logs:/var/log/nginx
+      - sauron-config:/etc/nginx/deny_list
+    networks:
+      - sauron-net
+
+  ftp-target:
+    image: fauria/vsftpd
+    container_name: ftp-target
+    ports:
+      - "21:21"  
+      - "21100-21110:21100-21110"
+    environment:
+      - FTP_USER=chems
+      - FTP_PASS=password123
+      - PASV_MIN_PORT=21100
+      - PASV_MAX_PORT=21110
+      - PASV_ADDRESS=127.0.0.1
+    volumes:
+      - sauron-ftp-logs:/var/log
+      - sauron-config:/etc/sauron_enforce
+    networks:
+      - sauron-net
+
+  sensor-alpha:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: sensor-alpha
+    depends_on:
+      - nexus
+      - web-target
+    environment:
+      - AGENT_NAME=Alpha
+      - LOG_PATH=/var/log/nginx/access.log
+      - NEXUS_URL=http://nexus:8000
+      - AGENT_TYPE=WEB_PROTECTOR
+    volumes:
+      - sauron-web-logs:/var/log/nginx:ro
+      - sauron-config:/etc/nginx/deny_list:rw
+    networks:
+      - sauron-net
+
+  sensor-beta:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: sensor-beta
+    depends_on:
+      - nexus
+      - ftp-target
+    environment:
+      - AGENT_NAME=Beta
+      - LOG_PATH=/var/log/vsftpd.log
+      - NEXUS_URL=http://nexus:8000
+      - AGENT_TYPE=FTP_PROTECTOR
+      - ENFORCE_PATH=/etc/sauron_enforce/hosts.deny
+    volumes:
+      - sauron-ftp-logs:/var/log:ro
+      - sauron-config:/etc/sauron_enforce:rw
+    networks:
+      - sauron-net
+
+networks:
+  sauron-net:
+    driver: bridge
+
+volumes:
+  sauron-web-logs:
+  sauron-ftp-logs:
+  sauron-config:
